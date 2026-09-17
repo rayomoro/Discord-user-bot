@@ -3,7 +3,7 @@ import json
 import asyncio
 import random
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from flask import Flask
 from threading import Thread
@@ -47,7 +47,7 @@ HISTORY_FILE = "history.json"
 REFERRAL_FILE = "referrals.json"
 DAILY_FILE = "daily.json"
 
-# ضع هنا رابط الـ Webhook الخاص بقناة السجلات في سيرفرك (أو اتركه هكذا إن لم تقم بإنشائه بعد)
+# ضع هنا رابط الـ Webhook الخاص بقناة السجلات في سيرفرك
 LOGS_WEBHOOK_URL = "PUT_YOUR_DISCORD_WEBHOOK_URL_HERE"
 
 async def send_log_webhook(title, description, color=discord.Color.gold()):
@@ -153,6 +153,39 @@ def is_rare_username(username):
     clean_name = username.strip().replace("@", "")
     return len(clean_name) <= 4
 
+# ==================== نظام السنايبر والفحص الأوتوماتيكي ====================
+
+SNIPER_ACTIVE = False
+
+async def check_discord_username(username, user_token=None):
+    """
+    دالة لفحص ما إذا كان اليوزر متاحاً حقاً عبر طلبات Discord API
+    """
+    url = f"https://discord.com/api/v9/users/@me/pomelo-attempt" # أو فحص عام للإتاحة
+    headers = {
+        "Content-Type": "application/json"
+    }
+    if user_token:
+        headers["Authorization"] = user_token
+    
+    payload = {"username": username}
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            # استخدام مسار فحص الإتاحة الرسمي لـ Discord Pomelo
+            async with session.post("https://discord.com/api/v9/users/@me/pomelo-attempt", json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # إذا كان taken = False معناه اليوزر متاح للاستخدام وغير محجوز!
+                    return data.get("taken", True) == False
+                elif resp.status == 429:
+                    # Rate limit - تخفيف السرعة مؤقتاً
+                    await asyncio.sleep(5)
+                    return False
+        except Exception:
+            pass
+    return False
+
 # ==================== الأزرار والتفاعل الفخم ====================
 
 class StoreView(discord.ui.View):
@@ -169,7 +202,7 @@ class StoreView(discord.ui.View):
                         f"📌 **التسعيرة:** كل **1 عملة متجر** بـ **800k** كريديت.\n"
                         f"⚙️ **طريقة الشحن عبر بوت Adamc:**\n"
                         f"```text\n#credit <@{MY_USER_ID}> [المبلغ المطلوب]\n```\n"
-                        f"⏳ **ملاحظة إدارية:** الكردت بيتوفر بعد رجعة بروبوت، وأرسل التحويل هنا ليتم الشحنت فوراً!",
+                        f"⏳ **ملاحظة إدارية:** الكردت بيتوفر بعد رجعة بروبوت، وأرسل التحويل هنا ليتم الشحن فوراً!",
             color=discord.Color.from_rgb(47, 49, 54)
         )
         embed.set_footer(text="أرسل وصل أو رسالة التحويل في هذه التذكرة للرصد الفوري")
@@ -201,7 +234,6 @@ class StoreView(discord.ui.View):
             update_user_coins(user.id, coins_to_add)
             new_balance = get_user_coins(user.id)
 
-            # منح مكافأة الإحالة إذا وُجدت
             referrer_id = get_user_referrer(user.id)
             if referrer_id:
                 ref_bonus = max(1, coins_to_add // 5)
@@ -362,7 +394,6 @@ async def daily_cmd(interaction: discord.Interaction):
             await interaction.response.send_message(embed=embed_err, ephemeral=True)
             return
 
-    # منح عملة واحدة هدية يومية
     daily_data[user_id_str] = now.isoformat()
     save_json(DAILY_FILE, daily_data)
     
@@ -377,66 +408,68 @@ async def daily_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed_ok, ephemeral=True)
     await send_log_webhook("مكافأة يومية", f"👤 العضو: {interaction.user.mention} استلم مكافئته اليومية.", discord.Color.green())
 
-@bot.tree.command(name="referral", description="تسجيل كود إحالة صديق والحصول على مكافآت فورية")
-@app_commands.describe(referrer="منشن أو أيدي الشخص الذي قام بدعوتك")
-async def referral_cmd(interaction: discord.Interaction, referrer: discord.User):
-    user = interaction.user
-    if user.id == referrer.id:
-        await interaction.response.send_message("❌ لا يمكنك دعوة نفسك يا زعيم!", ephemeral=True)
+@bot.tree.command(name="start-sniper", description="تشغيل السنايبر والفاحص الآلي لبيانات وتوكن الحساب")
+@app_commands.describe(user_token="ضع توكن الحساب القديم الخاص بك هنا للفحص الآمن")
+async def start_sniper_cmd(interaction: discord.Interaction, user_token: str):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ للإدارة العليا فقط!", ephemeral=True)
         return
-
-    existing = get_user_referrer(user.id)
-    if existing:
-        await interaction.response.send_message("❌ لقد قمت بتسجيل كود إحالة من قبل ولا يمكنك تغييره.", ephemeral=True)
-        return
-
-    set_user_referrer(user.id, referrer.id)
-    update_user_coins(referrer.id, 1)  # هدية فورية للمُحيل
     
-    embed = discord.Embed(
-        title="🤝 | نظام الإحالة الفاخر",
-        description=f"✅ تم بنجاح تسجيل {referrer.mention} كالشخص الذي قام بدعوتك!\n🎉 تم منحه **1 عملة** كهدية دعوة فورية.",
-        color=discord.Color.green()
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    global SNIPER_ACTIVE
+    SNIPER_ACTIVE = True
+    
+    await interaction.response.send_message("🚀 **تم تشغيل السنايبر والفاحص الآلي بنجاح!**\nالبوت بدأ يفحص اليوزرات في الخلفية ويتأكد من إتاحتها قبل فرزها للستوك أو لخاصك.", ephemeral=True)
+    
+    # مهمة الخلفية لفحص اليوزرات
+    async def run_sniper_background():
+        global SNIPER_ACTIVE
+        # أمثلة لتركيبات حروف للبحث (يمكنك توسيع القائمة أو جعلها مولدة)
+        sample_bases = ["rayo", "apex", "king", "god", "x9", "z_1", "vibe", "core", "neon", "cyber"]
+        
+        while SNIPER_ACTIVE:
+            try:
+                # توليد يوزرات عشوائية للفحص
+                rand_num = random.randint(10, 999)
+                base = random.choice(sample_bases)
+                test_username = f"{base}{rand_num}"
+                
+                # فحص إتاحة اليوزر عبر التوكن المقدم
+                is_available = await check_discord_username(test_username, user_token)
+                
+                if is_available:
+                    # إذا كان اليوزر شغال ومتاح حقاً:
+                    if is_rare_username(test_username):
+                        try:
+                            owner = await bot.fetch_user(MY_USER_ID)
+                            await owner.send(f"⭐ **[سنايبر] يوزر فخم ومتاح شغال!**\nاليوزر: `{test_username}`\nتم إرساله إليك حصرياً.")
+                        except Exception:
+                            pass
+                    else:
+                        add_to_stock(test_username)
+                        await send_log_webhook("سنايبر يوزر جديد", f"تم العثور على يوزر متاح وإضافته للستوك: `{test_username}`", discord.Color.green())
+                
+                # فاصل زمني بين كل فحص وفحص لحماية الحساب وتفادي الحظر
+                await asyncio.sleep(15)
+            except Exception:
+                await asyncio.sleep(10)
 
-@bot.tree.command(name="box", description="فتح صندوق الحظ العشوائي مقابل عملات معدودة")
-async def box_cmd(interaction: discord.Interaction):
-    user = interaction.user
-    cost = 2
-    balance = get_user_coins(user.id)
+    bot.loop.create_task(run_sniper_background())
 
-    if balance < cost:
-        await interaction.response.send_message(f"❌ رصيدك لا يكفي! فتح الصندوق يتطلب **{cost} عملات** (لديك {balance}).", ephemeral=True)
+@bot.tree.command(name="stop-sniper", description="إيقاف عمل السنايبر والفاحص الآلي")
+async def stop_sniper_cmd(interaction: discord.Interaction):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ للإدارة فقط!", ephemeral=True)
         return
-
-    account_item = get_and_remove_stock()
-    if not account_item:
-        await interaction.response.send_message("❌ عذراً، صناديق الحظ فارغة حالياً!", ephemeral=True)
-        return
-
-    update_user_coins(user.id, -cost)
-    add_history(user.id, account_item)
-
-    try:
-        await user.send(f"🎁 **فتحت صندوق الحظ وربحت يوزر:**\n`{account_item}`")
-        msg_status = "✅ تم إرسال اليوزر إلى رسائلك الخاصة (DM)."
-    except discord.Forbidden:
-        msg_status = f"⚠️ ها هو اليوزر الخاص بك هنا:\n`{account_item}`"
-
-    embed = discord.Embed(
-        title="🎁 | صندوق الحظ العشوائي",
-        description=f"{msg_status}\n✨ نتمنى لك حظاً موفقاً في المرات القادمة!",
-        color=discord.Color.purple()
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-    await send_log_webhook("فتح صندوق حظ", f"👤 العضو: {user.mention}\n🎁 اليوزر المربوح: `{account_item}`", discord.Color.purple())
+    
+    global SNIPER_ACTIVE
+    SNIPER_ACTIVE = False
+    await interaction.response.send_message("🛑 **تم إيقاف السنايبر والفاحص الآلي بنجاح.**", ephemeral=True)
 
 @bot.tree.command(name="addstock", description="إضافة يوزر للمخزون مع فلتر أوتوماتيكي لليوزرات المميزة")
 @app_commands.describe(username="اكتب اليوزر المراد إضافته")
 async def addstock_cmd(interaction: discord.Interaction, username: str):
     if interaction.user.id != MY_USER_ID:
-        await interaction.response.send_message("❌ للأدارة فقط!", ephemeral=True)
+        await interaction.response.send_message("❌ للإدارة فقط!", ephemeral=True)
         return
 
     if is_rare_username(username):
