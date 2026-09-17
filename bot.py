@@ -245,8 +245,6 @@ class StoreView(discord.ui.View):
 @bot.command(name="help", description="عرض لوحة المساعدة")
 async def help_cmd(ctx_or_interaction):
     is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    
     embed = discord.Embed(title="🌟 | لوحة المساعدة - Rayo Store", description="اختر التصنيف من القائمة أدناه:", color=discord.Color.gold())
     view = HelpView()
     if is_slash:
@@ -334,7 +332,7 @@ async def addstock_cmd(ctx_or_interaction, username: str = None):
     total = count_stock()
     msg = f"➕ تمت إضافة اليوزر `{username}` بنجاح. الإجمالي: **{total}**"
     if is_slash:
-        await ctx_or_interaction.response.send_project = await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
     else:
         await ctx_or_interaction.send(msg)
 
