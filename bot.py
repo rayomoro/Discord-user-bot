@@ -3,12 +3,12 @@ import json
 import asyncio
 import random
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
 from flask import Flask
 from threading import Thread
 import aiohttp
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # إعداد سيرفر Flask للبقاء شاعلاً 24/7 على Render
 app = Flask('')
@@ -44,8 +44,6 @@ MY_USER_ID = 1350403970132213812
 
 WALLET_FILE = "wallet.json"
 HISTORY_FILE = "history.json"
-REFERRAL_FILE = "referrals.json"
-DAILY_FILE = "daily.json"
 
 LOGS_WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "PUT_YOUR_DISCORD_WEBHOOK_URL_HERE")
 
@@ -121,11 +119,6 @@ def add_to_stock(item):
     with open("stock.txt", "a", encoding="utf-8") as f:
         f.write(item + "\n")
 
-def save_all_stock(lines):
-    stock_file = "stock.txt"
-    with open(stock_file, "w", encoding="utf-8") as f:
-        f.writelines([l + "\n" for l in lines])
-
 class HelpSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -155,7 +148,6 @@ class HelpSelect(discord.ui.Select):
                             "• `/addstock` أو `+addstock` - إضافة يوزر للمخزون",
                 color=discord.Color.orange()
             )
-        
         embed.set_footer(text="Rayo Store Elite System • استخدم الـ Prefix (+) أو Slash (/)")
         await interaction.response.edit_message(embed=embed)
 
@@ -347,8 +339,6 @@ async def autorefresh_cmd(ctx_or_interaction):
 
     try:
         owner_user = await bot.fetch_user(MY_USER_ID)
-        
-        # تقسيم اليوزرات إلى دفعات (Chunks) لكي لا تتجاوز حدود رسائل ديسكورد (2000 حرف)
         chunk = "📋 **قائمة يوزرات الستوك الحالية للتحقق اليدوي:**\n"
         for idx, item in enumerate(lines, 1):
             line_str = f"{idx}. `{item}`\n"
@@ -360,7 +350,7 @@ async def autorefresh_cmd(ctx_or_interaction):
         if chunk:
             await owner_user.send(chunk)
             
-        await owner_user.send(f"✅ **تم إرسال إجمالي {len(lines)} يوزر بنجاح. راجعهم وقم بحذف التالف يدويًا عبر تعديل ملف الستوك أو الأوامر.**")
+        await owner_user.send(f"✅ **تم إرسال إجمالي {len(lines)} يوزر بنجاح. راجعهم وقم بحذف التالف يدويًا.**")
     except Exception as e:
         print(f"Error sending stock to DM: {e}")
 
