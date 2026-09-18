@@ -44,7 +44,6 @@ MY_USER_ID = 1350403970132213812
 
 WALLET_FILE = "wallet.json"
 HISTORY_FILE = "history.json"
-
 LOGS_WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "PUT_YOUR_DISCORD_WEBHOOK_URL_HERE")
 
 async def send_log_webhook(title, description, color=discord.Color.gold()):
@@ -132,9 +131,12 @@ class HelpSelect(discord.ui.Select):
             embed = discord.Embed(
                 title="🌐 | قائمة الأوامر العامة",
                 description="الأوامر المتاحة لجميع أعضاء السيرفر:\n\n"
-                            "• `/ticket` أو `+ticket` - فتح تذكرة شراء جديدة\n"
-                            "• `/wallet` أو `+wallet` - فحص رصيدك من عملات Rex Coin\n"
-                            "• `/stock` أو `+stock` - عرض الستوك المتوفر",
+                            "• `/ticket` - فتح تذكرة شراء جديدة\n"
+                            "• `/wallet` - فحص رصيدك من عملات Rex Coin\n"
+                            "• `/stock` - عرض الستوك المتوفر\n"
+                            "• `/pay` - تحويل عملات لعضو آخر\n"
+                            "• `/history` - عرض سجل مشترياتك السابقة\n"
+                            "• `/vouch` - تقييم المتجر",
                 color=discord.Color.blue()
             )
         elif self.values[0] == "admin":
@@ -142,13 +144,13 @@ class HelpSelect(discord.ui.Select):
                 title="🛡️ | أوامر الإدارة والتذاكر",
                 description="الأوامر المخصصة للإدارة:\n\n"
                             "• `/ticket-panel` - إرسال بنل التذاكر في القناة\n"
-                            "• `/autorefresh` - إرسال كافة يوزرات الستوك للخاص للتحقق اليدوي\n"
-                            "• `/autostock` - تجديد الستوك أوتوماتيكياً بدون سنايب\n"
-                            "• `/addrex` - إضافة عملات Rex Coin لعضو\n"
-                            "• `/addstock` أو `+addstock` - إضافة يوزر للمخزون",
+                            "• `/autorefresh` - إرسال الستوك للخاص للتحقق\n"
+                            "• `/autostock` - توليد يوزرات أوتوماتيكياً\n"
+                            "• `/addrex` - إضافة عملات لعضو\n"
+                            "• `/addstock` - إضافة يوزر للمخزون",
                 color=discord.Color.orange()
             )
-        embed.set_footer(text="Rayo Store Elite System • استخدم الـ Prefix (+) أو Slash (/)")
+        embed.set_footer(text="Rayo Store Elite System • نظام متكامل")
         await interaction.response.edit_message(embed=embed)
 
 class HelpView(discord.ui.View):
@@ -229,6 +231,11 @@ class StoreView(discord.ui.View):
         update_user_coins(user.id, -cost)
         add_history(user.id, account_item)
 
+        # نظام تنبيه انتهاء الستوك أوتوماتيكياً عبر الـ Webhook
+        remaining_stock = count_stock()
+        if remaining_stock <= 2:
+            await send_log_webhook("⚠️ تنبيه: الستوك يوشك على النفاد!", f"📦 المتبقي حالياً في الستوك: **{remaining_stock} يوزر فقط!**\nيرجى تجديده بسرعة عبر أمر `/autostock`.", discord.Color.orange())
+
         try:
             await user.send(f"🎉 **مبروك يا زعيم! اليوزر الخاص بك:** `{account_item}`")
             dm_text = "✅ تم إرسال اليوزر إلى رسائلك الخاصة."
@@ -236,7 +243,7 @@ class StoreView(discord.ui.View):
             dm_text = f"⚠️ تعذر إرسال رسالة خاصة، ها هو يوزرك:\n`{account_item}`"
 
         await interaction.response.send_message(embed=discord.Embed(title="🛒 | تم الشراء بنجاح", description=dm_text, color=discord.Color.gold()), ephemeral=True)
-        await send_log_webhook("عملية شراء", f"👤 العضو: {user.mention}\n📦 اليوزر: `{account_item}`", discord.Color.gold())
+        await send_log_webhook("عملية شراء", f"👤 العضو: {user.mention}\n📦 اليوزر: `{account_item}`\n📉 المتبقي بالستوك: `{remaining_stock}`", discord.Color.gold())
 
 async def open_ticket_process(interaction_or_ctx):
     is_slash = isinstance(interaction_or_ctx, discord.Interaction)
@@ -267,33 +274,18 @@ async def open_ticket_process(interaction_or_ctx):
         await interaction_or_ctx.send(embed=reply_embed)
 
 @bot.tree.command(name="help", description="عرض لوحة المساعدة")
-@bot.command(name="help", description="عرض لوحة المساعدة")
-async def help_cmd(ctx_or_interaction):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
+async def help_cmd(interaction: discord.Interaction):
     embed = discord.Embed(title="🌟 | لوحة المساعدة - Rayo Store", description="اختر التصنيف من القائمة أدناه:", color=discord.Color.gold())
-    view = HelpView()
-    if is_slash:
-        await ctx_or_interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-    else:
-        await ctx_or_interaction.send(embed=embed, view=view)
+    await interaction.response.send_message(embed=embed, view=HelpView(), ephemeral=True)
 
 @bot.tree.command(name="ticket", description="فتح تذكرة الشراء")
-@bot.command(name="ticket", description="فتح تذكرة الشراء")
-async def ticket_cmd(ctx_or_interaction):
-    await open_ticket_process(ctx_or_interaction)
+async def ticket_cmd(interaction: discord.Interaction):
+    await open_ticket_process(interaction)
 
 @bot.tree.command(name="ticket-panel", description="إرسال رسالة نظام التذاكر في القناة")
-@bot.command(name="ticket-panel", description="إرسال رسالة نظام التذاكر في القناة")
-async def ticket_panel_cmd(ctx_or_interaction):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    
-    if user.id != MY_USER_ID:
-        msg = "❌ للإدارة فقط!"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
+async def ticket_panel_cmd(interaction: discord.Interaction):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ للإدارة فقط!", ephemeral=True)
         return
 
     embed = discord.Embed(
@@ -303,31 +295,16 @@ async def ticket_panel_cmd(ctx_or_interaction):
     )
     embed.set_footer(text="Rayo Store Elite System • 2026")
     
-    if is_slash:
-        await ctx_or_interaction.response.send_message("✅ تم إرسال بنل التذاكر بنجاح.", ephemeral=True)
-        await ctx_or_interaction.channel.send(embed=embed, view=MainTicketPanelView())
-    else:
-        await ctx_or_interaction.send(embed=embed, view=MainTicketPanelView())
+    await interaction.response.send_message("✅ تم إرسال بنل التذاكر بنجاح.", ephemeral=True)
+    await interaction.channel.send(embed=embed, view=MainTicketPanelView())
 
 @bot.tree.command(name="autorefresh", description="إرسال كافة يوزرات الستوك للخاص للتحقق اليدوي منها")
-@bot.command(name="autorefresh", description="إرسال كافة يوزرات الستوك للخاص للتحقق اليدوي منها")
-async def autorefresh_cmd(ctx_or_interaction):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    
-    if user.id != MY_USER_ID:
-        msg = "❌ هذا الأمر مخصص لصاحب البوت فقط!"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
+async def autorefresh_cmd(interaction: discord.Interaction):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ هذا الأمر مخصص لصاحب البوت فقط!", ephemeral=True)
         return
 
-    if is_slash:
-        await ctx_or_interaction.response.send_message("📤 جاري إرسال قائمة الستوك كاملة إلى رسائلك الخاصة للتحقق اليدوي...", ephemeral=True)
-    else:
-        await ctx_or_interaction.send("📤 جاري إرسال قائمة الستوك كاملة إلى رسائلك الخاصة للتحقق اليدوي...")
-
+    await interaction.response.send_message("📤 جاري إرسال قائمة الستوك كاملة إلى رسائلك الخاصة للتحقق اليدوي...", ephemeral=True)
     lines = load_stock_lines()
     if not lines:
         try:
@@ -346,129 +323,106 @@ async def autorefresh_cmd(ctx_or_interaction):
                 await owner_user.send(chunk)
                 chunk = ""
             chunk += line_str
-        
         if chunk:
             await owner_user.send(chunk)
-            
         await owner_user.send(f"✅ **تم إرسال إجمالي {len(lines)} يوزر بنجاح. راجعهم وقم بحذف التالف يدويًا.**")
     except Exception as e:
         print(f"Error sending stock to DM: {e}")
 
 @bot.tree.command(name="autostock", description="تجديد الستوك أوتوماتيكياً بدون سنايب")
 @app_commands.describe(count="عدد اليوزرات المراد توليدها أوتوماتيكياً")
-@bot.command(name="autostock", description="تجديد الستوك أوتوماتيكياً بدون سنايب")
-async def autostock_cmd(ctx_or_interaction, count: int = 5):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    
-    if user.id != MY_USER_ID:
-        msg = "❌ هذا الأمر مخصص لصاحب البوت فقط!"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
+async def autostock_cmd(interaction: discord.Interaction, count: int = 5):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ هذا الأمر مخصص لصاحب البوت فقط!", ephemeral=True)
         return
 
     letters = "abcdefghijklmnopqrstuvwxyz0123456789_"
-    generated = []
     for _ in range(count):
         uname = "".join(random.choices(letters, k=4)) + "_" + "".join(random.choices(letters, k=2))
         add_to_stock(uname)
-        generated.append(uname)
 
     total = count_stock()
-    msg = f"✨ تمت إضافة **{count} يوزر** أوتوماتيكياً للستوك بنجاح!\n📦 الإجمالي الحالي: **{total}** يوزر."
-    
-    if is_slash:
-        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-    else:
-        await ctx_or_interaction.send(msg)
+    await interaction.response.send_message(f"✨ تمت إضافة **{count} يوزر** أوتوماتيكياً للستوك بنجاح!\n📦 الإجمالي الحالي: **{total}** يوزر.", ephemeral=True)
 
 @bot.tree.command(name="addrex", description="إضافة عملات Rex Coin لشخص معين")
 @app_commands.describe(member="العضو المراد إضافة العملات له", amount="عدد عملات Rex Coin المراد إضافتها")
-@bot.command(name="addrex", description="إضافة عملات Rex Coin لشخص معين")
-async def addrex_cmd(ctx_or_interaction, member: discord.Member = None, amount: int = None):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    
-    if user.id != MY_USER_ID:
-        msg = "❌ هذا الأمر مخصص لصاحب البوت فقط!"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
-        return
-        
-    if not member or amount is None:
-        msg = "❌ الاستخدام الصحيح: `+addrex @User [الكمية]` أو عبر الأمر السلاش `/addrex`"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
+async def addrex_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ هذا الأمر مخصص لصاحب البوت فقط!", ephemeral=True)
         return
 
     update_user_coins(member.id, amount)
     new_balance = get_user_coins(member.id)
-    
-    msg = f"✅ تمت إضافة **{amount} Rex Coin** بنجاح إلى العضو {member.mention}.\n💰 رصيده الجديد: `{new_balance} Rex Coin`"
-    if is_slash:
-        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-    else:
-        await ctx_or_interaction.send(msg)
+    await interaction.response.send_message(f"✅ تمت إضافة **{amount} Rex Coin** بنجاح إلى العضو {member.mention}.\n💰 رصيده الجديد: `{new_balance} Rex Coin`", ephemeral=True)
 
 @bot.tree.command(name="wallet", description="استعراض رصيدك من Rex Coin")
-@bot.command(name="wallet", description="استعراض رصيدك من Rex Coin")
-async def wallet_cmd(ctx_or_interaction):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    balance = get_user_coins(user.id)
+async def wallet_cmd(interaction: discord.Interaction):
+    balance = get_user_coins(interaction.user.id)
     embed = discord.Embed(title="💰 | المحفظة", description=f"رصيدك الحالي: **{balance} Rex Coin**", color=discord.Color.blurple())
-    if is_slash:
-        await ctx_or_interaction.response.send_message(embed=embed, ephemeral=True)
-    else:
-        await ctx_or_interaction.send(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="stock", description="عرض حالة الستوك")
-@bot.command(name="stock", description="عرض حالة الستوك")
-async def stock_cmd(ctx_or_interaction):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
+async def stock_cmd(interaction: discord.Interaction):
     total = count_stock()
     embed = discord.Embed(title="📦 | الستوك", description=f"المتوفر حالياً: **{total}** يوزر.", color=discord.Color.blurple())
-    if is_slash:
-        await ctx_or_interaction.response.send_message(embed=embed, ephemeral=True)
-    else:
-        await ctx_or_interaction.send(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @bot.tree.command(name="addstock", description="إضافة يوزر للستوك")
 @app_commands.describe(username="اليوزر المراد إضافته")
-@bot.command(name="addstock", description="إضافة يوزر للستوك")
-async def addstock_cmd(ctx_or_interaction, username: str = None):
-    is_slash = isinstance(ctx_or_interaction, discord.Interaction)
-    user = ctx_or_interaction.user if is_slash else ctx_or_interaction.author
-    
-    if user.id != MY_USER_ID:
-        msg = "❌ للإدارة فقط!"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
-        return
-        
-    if not username:
-        msg = "❌ اكتب اليوزر (مثال: `+addstock rayo`)"
-        if is_slash:
-            await ctx_or_interaction.response.send_message(msg, ephemeral=True)
-        else:
-            await ctx_or_interaction.send(msg)
+async def addstock_cmd(interaction: discord.Interaction, username: str):
+    if interaction.user.id != MY_USER_ID:
+        await interaction.response.send_message("❌ للإدارة فقط!", ephemeral=True)
         return
 
     add_to_stock(username)
     total = count_stock()
-    msg = f"➕ تمت إضافة اليوزر `{username}` بنجاح. الإجمالي: **{total}**"
-    if is_slash:
-        await ctx_or_interaction.response.send_message(msg, ephemeral=True)
+    await interaction.response.send_message(f"➕ تمت إضافة اليوزر `{username}` بنجاح. الإجمالي: **{total}**", ephemeral=True)
+
+@bot.tree.command(name="pay", description="تحويل عملات Rex Coin لعضو آخر")
+@app_commands.describe(member="العضو المراد التحويل له", amount="عدد العملات")
+async def pay_cmd(interaction: discord.Interaction, member: discord.Member, amount: int):
+    user = interaction.user
+    if amount <= 0:
+        await interaction.response.send_message("❌ لا يمكنك تحويل قيمة سالبة أو صفر!", ephemeral=True)
+        return
+    if member.id == user.id:
+        await interaction.response.send_message("❌ لا يمكنك التحويل لنفسك!", ephemeral=True)
+        return
+
+    sender_balance = get_user_coins(user.id)
+    if sender_balance < amount:
+        await interaction.response.send_message(f"❌ رصيدك غير كافٍ! رصيدك الحالي: `{sender_balance} Rex Coin`", ephemeral=True)
+        return
+
+    update_user_coins(user.id, -amount)
+    update_user_coins(member.id, amount)
+
+    await interaction.response.send_message(f"✅ تم تحويل **{amount} Rex Coin** بنجاح إلى العضو {member.mention}!", ephemeral=True)
+    await send_log_webhook("تحويل مالي بين الأعضاء", f"👤 من: {user.mention}\n👤 إلى: {member.mention}\n💎 الكمية: **{amount} Rex Coin**", discord.Color.blue())
+
+@bot.tree.command(name="history", description="عرض سجل يوزراتك المشراة سابقاً")
+async def history_cmd(interaction: discord.Interaction):
+    history_data = load_json(HISTORY_FILE)
+    user_history = history_data.get(str(interaction.user.id), [])
+
+    if not user_history:
+        embed = discord.Embed(title="📜 | سجل المشتريات", description="ليس لديك أي مشتريات سابقة في سجلك.", color=discord.Color.orange())
     else:
-        await ctx_or_interaction.send(msg)
+        items_str = "\n".join([f"• `{item}`" for item in user_history[-15:]])
+        embed = discord.Embed(title="📜 | سجل مشترياتك الأخيرة", description=items_str, color=discord.Color.gold())
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="vouch", description="تقييم متجر Rayo Store وثقة التعامل")
+@app_commands.describe(rating="التقييم من 1 إلى 5", comment="رأيك في المتجر والخدمة")
+async def vouch_cmd(interaction: discord.Interaction, rating: int, comment: str):
+    if rating < 1 or rating > 5:
+        await interaction.response.send_message("❌ التقييم يجب أن يكون بين 1 و 5 نجوم!", ephemeral=True)
+        return
+
+    stars = "⭐" * rating
+    await interaction.response.send_message("✅ شكراً لك! تم إرسال تقييمك بنجاح.", ephemeral=True)
+    await send_log_webhook("تقييم جديد (Vouch)", f"👤 العضو: {interaction.user.mention}\n⭐ التقييم: {rating}/5 ({stars})\n💬 التعليق: {comment}", discord.Color.gold())
 
 keep_alive()
 TOKEN = os.environ.get('DISCORD_TOKEN')
