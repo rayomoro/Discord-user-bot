@@ -231,7 +231,6 @@ class StoreView(discord.ui.View):
         update_user_coins(user.id, -cost)
         add_history(user.id, account_item)
 
-        # نظام تنبيه انتهاء الستوك أوتوماتيكياً عبر الـ Webhook
         remaining_stock = count_stock()
         if remaining_stock <= 2:
             await send_log_webhook("⚠️ تنبيه: الستوك يوشك على النفاد!", f"📦 المتبقي حالياً في الستوك: **{remaining_stock} يوزر فقط!**\nيرجى تجديده بسرعة عبر أمر `/autostock`.", discord.Color.orange())
