@@ -1,0 +1,9 @@
+{
+  "accounts": [
+    {
+      "name": "Account 1",
+      "address": "0x...",
+      "private_key": "..."
+    }
+  ]
+}
